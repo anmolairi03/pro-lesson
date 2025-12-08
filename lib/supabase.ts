@@ -12,5 +12,6 @@ export type Lesson = {
   content: string;
   status: 'generating' | 'generated' | 'error';
   error_message: string | null;
+  image_urls: string[];
   created_at: string;
 };
