@@ -11,6 +11,30 @@ interface LessonRequest {
   outline: string;
 }
 
+async function fetchImagesFromPexels(searchQuery: string, pexelsKey: string): Promise<string[]> {
+  try {
+    const response = await fetch(
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(searchQuery)}&per_page=3&orientation=landscape`,
+      {
+        headers: {
+          'Authorization': pexelsKey,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error(`Pexels error: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    return data.photos?.map((photo: any) => photo.src.large) || [];
+  } catch (error) {
+    console.error('Error fetching images from Pexels:', error);
+    return [];
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
@@ -35,6 +59,7 @@ Deno.serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const geminiKey = Deno.env.get('GEMINI_API_KEY');
+    const pexelsKey = Deno.env.get('PEXELS_API_KEY');
 
     console.log(`[${lessonId}] Starting generation with key present: ${!!geminiKey}`);
 
@@ -44,12 +69,18 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl!, supabaseKey!);
 
-    const prompt = `Create a brief, well-structured lesson (800-1200 characters max) about:
+    const prompt = `Create a comprehensive, well-structured lesson (1200-1600 characters) about:
 
 ${outline}
 
-Include: introduction, main points (bullet format), one example, and 3 practice questions.
-Use markdown. Be concise.`;
+Include:
+1. Clear introduction
+2. Main concepts with detailed explanations
+3. Practical examples and use cases
+4. Key takeaways (bullet points)
+5. Practice questions (at least 3)
+
+Use markdown with proper headings. Make it educational, engaging, and detailed.`;
 
     console.log(`[${lessonId}] Calling Gemini API...`);
 
@@ -71,8 +102,8 @@ Use markdown. Be concise.`;
             },
           ],
           generationConfig: {
-            maxOutputTokens: 800,
-            temperature: 0.5,
+            maxOutputTokens: 1200,
+            temperature: 0.7,
           },
         }),
       }
@@ -98,11 +129,19 @@ Use markdown. Be concise.`;
 
     const title = outline.substring(0, 100).trim();
 
+    let imageUrls: string[] = [];
+    if (pexelsKey) {
+      console.log(`[${lessonId}] Fetching images from Pexels...`);
+      imageUrls = await fetchImagesFromPexels(outline.split(' ').slice(0, 3).join(' '), pexelsKey);
+      console.log(`[${lessonId}] Found ${imageUrls.length} images`);
+    }
+
     const { error: updateError } = await supabase
       .from('lessons')
       .update({
         title,
         content: generatedContent,
+        image_urls: imageUrls,
         status: 'generated',
       })
       .eq('id', lessonId);
