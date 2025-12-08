@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { ArrowLeft, BookOpen, Calendar, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, BookOpen, Calendar, Loader2, AlertCircle, Image as ImageIcon } from 'lucide-react';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import { formatDistanceToNow } from 'date-fns';
@@ -171,55 +171,81 @@ export default function LessonPage() {
             )}
 
             {lesson.status === 'generated' && lesson.content && (
-              <div className="prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h2:mt-8 prose-h2:mb-4 prose-h3:text-xl prose-h3:mt-6 prose-h3:mb-3 prose-p:text-base prose-p:leading-relaxed prose-li:text-base prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-code:text-sm prose-code:bg-slate-100 dark:prose-code:bg-slate-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded">
-                <ReactMarkdown
-                  components={{
-                    h1: ({ node, ...props }) => (
-                      <h1 className="text-3xl font-bold mt-8 mb-4 pb-2 border-b" {...props} />
-                    ),
-                    h2: ({ node, ...props }) => (
-                      <h2 className="text-2xl font-bold mt-8 mb-4" {...props} />
-                    ),
-                    h3: ({ node, ...props }) => (
-                      <h3 className="text-xl font-bold mt-6 mb-3" {...props} />
-                    ),
-                    code: ({ node, className, children, ...props }) => {
-                      const isInline = !className;
-                      return isInline ? (
-                        <code
-                          className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-sm font-mono"
+              <div className="space-y-8">
+                <div className="prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-h1:text-3xl prose-h2:text-2xl prose-h2:mt-8 prose-h2:mb-4 prose-h3:text-xl prose-h3:mt-6 prose-h3:mb-3 prose-p:text-base prose-p:leading-relaxed prose-li:text-base prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-code:text-sm prose-code:bg-slate-100 dark:prose-code:bg-slate-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded">
+                  <ReactMarkdown
+                    components={{
+                      h1: ({ node, ...props }) => (
+                        <h1 className="text-3xl font-bold mt-8 mb-4 pb-2 border-b" {...props} />
+                      ),
+                      h2: ({ node, ...props }) => (
+                        <h2 className="text-2xl font-bold mt-8 mb-4" {...props} />
+                      ),
+                      h3: ({ node, ...props }) => (
+                        <h3 className="text-xl font-bold mt-6 mb-3" {...props} />
+                      ),
+                      code: ({ node, className, children, ...props }) => {
+                        const isInline = !className;
+                        return isInline ? (
+                          <code
+                            className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-sm font-mono"
+                            {...props}
+                          >
+                            {children}
+                          </code>
+                        ) : (
+                          <code className={className} {...props}>
+                            {children}
+                          </code>
+                        );
+                      },
+                      pre: ({ node, ...props }) => (
+                        <pre
+                          className="bg-slate-900 dark:bg-slate-950 text-slate-100 p-4 rounded-lg overflow-x-auto my-6"
                           {...props}
+                        />
+                      ),
+                      ul: ({ node, ...props }) => (
+                        <ul className="list-disc list-inside space-y-2 my-4" {...props} />
+                      ),
+                      ol: ({ node, ...props }) => (
+                        <ol className="list-decimal list-inside space-y-2 my-4" {...props} />
+                      ),
+                      blockquote: ({ node, ...props }) => (
+                        <blockquote
+                          className="border-l-4 border-blue-500 pl-4 italic my-6 text-muted-foreground"
+                          {...props}
+                        />
+                      ),
+                    }}
+                  >
+                    {lesson.content}
+                  </ReactMarkdown>
+                </div>
+
+                {lesson.image_urls && lesson.image_urls.length > 0 && (
+                  <div className="border-t pt-8 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <ImageIcon className="h-5 w-5 text-blue-600" />
+                      <h3 className="text-lg font-semibold">Visual References</h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {lesson.image_urls.map((imageUrl, idx) => (
+                        <div
+                          key={idx}
+                          className="relative group rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-shadow"
                         >
-                          {children}
-                        </code>
-                      ) : (
-                        <code className={className} {...props}>
-                          {children}
-                        </code>
-                      );
-                    },
-                    pre: ({ node, ...props }) => (
-                      <pre
-                        className="bg-slate-900 dark:bg-slate-950 text-slate-100 p-4 rounded-lg overflow-x-auto my-6"
-                        {...props}
-                      />
-                    ),
-                    ul: ({ node, ...props }) => (
-                      <ul className="list-disc list-inside space-y-2 my-4" {...props} />
-                    ),
-                    ol: ({ node, ...props }) => (
-                      <ol className="list-decimal list-inside space-y-2 my-4" {...props} />
-                    ),
-                    blockquote: ({ node, ...props }) => (
-                      <blockquote
-                        className="border-l-4 border-blue-500 pl-4 italic my-6 text-muted-foreground"
-                        {...props}
-                      />
-                    ),
-                  }}
-                >
-                  {lesson.content}
-                </ReactMarkdown>
+                          <img
+                            src={imageUrl}
+                            alt={`Lesson visual reference ${idx + 1}`}
+                            className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
