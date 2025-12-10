@@ -11,6 +11,94 @@ interface LessonRequest {
   outline: string;
 }
 
+interface QuizQuestion {
+  question: string;
+  options: string[];
+  correct_answer: number;
+  explanation: string;
+}
+
+async function updateGenerationProgress(supabase: any, lessonId: string, stage: string, progress: number) {
+  await supabase
+    .from('lessons')
+    .update({
+      generation_progress: {
+        stage,
+        progress: Math.min(progress, 100),
+        updated_at: new Date().toISOString(),
+      },
+    })
+    .eq('id', lessonId);
+}
+
+async function generateQuizQuestions(outline: string, geminiKey: string): Promise<QuizQuestion[]> {
+  try {
+    const prompt = `Based on this lesson outline: "${outline}"
+
+Generate exactly 5 multiple-choice quiz questions to test understanding. For each question:
+1. Create a clear question
+2. Provide 4 options (A, B, C, D)
+3. Specify which option is correct (0-3)
+4. Provide a brief explanation
+
+Return as JSON array with this format:
+[
+  {
+    "question": "Question text?",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "correct_answer": 0,
+    "explanation": "Why this is correct"
+  }
+]
+
+Return ONLY the JSON array, no other text.`;
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: prompt,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            maxOutputTokens: 1000,
+            temperature: 0.7,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      console.error(`Quiz generation error: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    const quizText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!quizText) return [];
+
+    const jsonMatch = quizText.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    if (!jsonMatch) return [];
+
+    const questions = JSON.parse(jsonMatch[0]);
+    return Array.isArray(questions) ? questions.slice(0, 5) : [];
+  } catch (error) {
+    console.error('Error generating quiz:', error);
+    return [];
+  }
+}
+
 async function fetchImagesFromPexels(searchQuery: string, pexelsKey: string): Promise<string[]> {
   try {
     const response = await fetch(
@@ -69,6 +157,8 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl!, supabaseKey!);
 
+    await updateGenerationProgress(supabase, lessonId, 'generating_content', 10);
+
     const prompt = `Create a comprehensive, well-structured lesson (1200-1600 characters) about:
 
 ${outline}
@@ -81,8 +171,6 @@ Include:
 5. Practice questions (at least 3)
 
 Use markdown with proper headings. Make it educational, engaging, and detailed.`;
-
-    console.log(`[${lessonId}] Calling Gemini API...`);
 
     const geminiResponse = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
@@ -109,8 +197,6 @@ Use markdown with proper headings. Make it educational, engaging, and detailed.`
       }
     );
 
-    console.log(`[${lessonId}] Gemini response status: ${geminiResponse.status}`);
-
     if (!geminiResponse.ok) {
       const errorText = await geminiResponse.text();
       console.error(`[${lessonId}] Gemini error: ${errorText}`);
@@ -121,20 +207,22 @@ Use markdown with proper headings. Make it educational, engaging, and detailed.`
     const generatedContent = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!generatedContent) {
-      console.error(`[${lessonId}] No content in response`);
       throw new Error('No content generated');
     }
 
-    console.log(`[${lessonId}] Content generated: ${generatedContent.length} chars`);
+    await updateGenerationProgress(supabase, lessonId, 'generating_content', 40);
+
+    const quizQuestions = await generateQuizQuestions(outline, geminiKey);
+    await updateGenerationProgress(supabase, lessonId, 'generating_quiz', 60);
 
     const title = outline.substring(0, 100).trim();
-
     let imageUrls: string[] = [];
+
     if (pexelsKey) {
-      console.log(`[${lessonId}] Fetching images from Pexels...`);
       imageUrls = await fetchImagesFromPexels(outline.split(' ').slice(0, 3).join(' '), pexelsKey);
-      console.log(`[${lessonId}] Found ${imageUrls.length} images`);
     }
+
+    await updateGenerationProgress(supabase, lessonId, 'fetching_images', 80);
 
     const { error: updateError } = await supabase
       .from('lessons')
@@ -142,7 +230,13 @@ Use markdown with proper headings. Make it educational, engaging, and detailed.`
         title,
         content: generatedContent,
         image_urls: imageUrls,
+        quiz_data: quizQuestions,
         status: 'generated',
+        generation_progress: {
+          stage: 'finalizing',
+          progress: 95,
+          updated_at: new Date().toISOString(),
+        },
       })
       .eq('id', lessonId);
 
@@ -151,7 +245,7 @@ Use markdown with proper headings. Make it educational, engaging, and detailed.`
       throw updateError;
     }
 
-    console.log(`[${lessonId}] Success`);
+    await updateGenerationProgress(supabase, lessonId, 'completed', 100);
 
     return new Response(
       JSON.stringify({ success: true, lessonId }),
@@ -178,6 +272,11 @@ Use markdown with proper headings. Make it educational, engaging, and detailed.`
           .update({
             status: 'error',
             error_message: errorMessage.substring(0, 200),
+            generation_progress: {
+              stage: 'error',
+              progress: 0,
+              error: errorMessage,
+            },
           })
           .eq('id', lessonId);
       }
