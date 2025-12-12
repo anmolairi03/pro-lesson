@@ -18,19 +18,6 @@ interface QuizQuestion {
   explanation: string;
 }
 
-async function updateGenerationProgress(supabase: any, lessonId: string, stage: string, progress: number) {
-  await supabase
-    .from('lessons')
-    .update({
-      generation_progress: {
-        stage,
-        progress: Math.min(progress, 100),
-        updated_at: new Date().toISOString(),
-      },
-    })
-    .eq('id', lessonId);
-}
-
 async function generateQuizQuestions(outline: string, geminiKey: string): Promise<QuizQuestion[]> {
   try {
     const prompt = `Based on this lesson outline: "${outline}"
@@ -149,15 +136,11 @@ Deno.serve(async (req: Request) => {
     const geminiKey = Deno.env.get('GEMINI_API_KEY');
     const pexelsKey = Deno.env.get('PEXELS_API_KEY');
 
-    console.log(`[${lessonId}] Starting generation with key present: ${!!geminiKey}`);
-
     if (!geminiKey) {
       throw new Error('GEMINI_API_KEY not configured');
     }
 
     const supabase = createClient(supabaseUrl!, supabaseKey!);
-
-    await updateGenerationProgress(supabase, lessonId, 'generating_content', 10);
 
     const prompt = `Create a comprehensive, well-structured lesson (1200-1600 characters) about:
 
@@ -210,31 +193,17 @@ Use markdown with proper headings. Make it educational, engaging, and detailed.`
       throw new Error('No content generated');
     }
 
-    await updateGenerationProgress(supabase, lessonId, 'generating_content', 40);
-
-    const quizQuestions = await generateQuizQuestions(outline, geminiKey);
-    await updateGenerationProgress(supabase, lessonId, 'generating_quiz', 60);
-
     const title = outline.substring(0, 100).trim();
-    let imageUrls: string[] = [];
-
-    if (pexelsKey) {
-      imageUrls = await fetchImagesFromPexels(outline.split(' ').slice(0, 3).join(' '), pexelsKey);
-    }
-
-    await updateGenerationProgress(supabase, lessonId, 'fetching_images', 80);
 
     const { error: updateError } = await supabase
       .from('lessons')
       .update({
         title,
         content: generatedContent,
-        image_urls: imageUrls,
-        quiz_data: quizQuestions,
         status: 'generated',
         generation_progress: {
-          stage: 'finalizing',
-          progress: 95,
+          stage: 'completed',
+          progress: 100,
           updated_at: new Date().toISOString(),
         },
       })
@@ -245,7 +214,47 @@ Use markdown with proper headings. Make it educational, engaging, and detailed.`
       throw updateError;
     }
 
-    await updateGenerationProgress(supabase, lessonId, 'completed', 100);
+    if (typeof EdgeRuntime !== 'undefined') {
+      const backgroundTasks = (async () => {
+        try {
+          const quizQuestions = await generateQuizQuestions(outline, geminiKey);
+          let imageUrls: string[] = [];
+
+          if (pexelsKey) {
+            imageUrls = await fetchImagesFromPexels(outline.split(' ').slice(0, 3).join(' '), pexelsKey);
+          }
+
+          await supabase
+            .from('lessons')
+            .update({
+              quiz_data: quizQuestions,
+              image_urls: imageUrls,
+            })
+            .eq('id', lessonId);
+        } catch (error) {
+          console.error(`[${lessonId}] Background task error:`, error);
+        }
+      })();
+
+      if (EdgeRuntime && EdgeRuntime.waitUntil) {
+        EdgeRuntime.waitUntil(backgroundTasks);
+      }
+    } else {
+      const quizQuestions = await generateQuizQuestions(outline, geminiKey);
+      let imageUrls: string[] = [];
+
+      if (pexelsKey) {
+        imageUrls = await fetchImagesFromPexels(outline.split(' ').slice(0, 3).join(' '), pexelsKey);
+      }
+
+      await supabase
+        .from('lessons')
+        .update({
+          quiz_data: quizQuestions,
+          image_urls: imageUrls,
+        })
+        .eq('id', lessonId);
+    }
 
     return new Response(
       JSON.stringify({ success: true, lessonId }),
